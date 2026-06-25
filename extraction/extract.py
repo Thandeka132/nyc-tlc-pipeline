@@ -16,6 +16,8 @@ CSV_LOCAL_PATH = "data/taxi_zone_lookup.csv"
 # Function to download a file from a URL to a local path
 def download_file(url, local_path):
 
+    # Attempt to download the file and handle any exceptions that may occur
+    
     try:
         wget.download(url, local_path)
         print(f"Downloaded {url} to {local_path} successfully.")
@@ -26,6 +28,7 @@ def download_file(url, local_path):
 # Function to upload a file from local path to Google Cloud Storage
 def upload_to_gcs(bucket_name, source_file_name, destination_blob_name):
     
+    # Attempt to upload the file to GCS and handle any exceptions that may occur
     try:
         storage_client = storage.Client()
         bucket = storage_client.bucket(bucket_name)
