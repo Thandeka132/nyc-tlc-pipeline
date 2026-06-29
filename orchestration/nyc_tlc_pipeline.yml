@@ -1,0 +1,60 @@
+id: nyc_tlc_pipeline
+namespace: nyc.tlc
+
+pluginDefaults:
+  - type: io.kestra.plugin.gcp.bigquery.Query
+    values:
+      projectId: nyc-tlc-pipeline-497315
+      serviceAccount: "{{ read('gcp-creds.json') }}"
+
+tasks:
+  - id: extract_data
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+    containerImage: python:3.11-slim
+    namespaceFiles:
+      enabled: true
+    env:
+      GOOGLE_APPLICATION_CREDENTIALS: gcp-creds.json
+      GCS_BUCKET_NAME: tlc-borough-analytics-497315-terra-bucket
+    commands:
+      - mkdir -p data
+      - python3 -m pip install google-cloud-storage wget python-dotenv --break-system-packages
+      - python3 extraction/extract.py
+
+  - id: create_clean_trips
+    type: io.kestra.plugin.gcp.bigquery.Query
+    sql: |
+      CREATE OR REPLACE TABLE tlc_borough_analytics.clean_trips AS (
+      SELECT
+        raw_trips.tpep_pickup_datetime,
+        raw_trips.tpep_dropoff_datetime,
+        TIMESTAMP_DIFF(raw_trips.tpep_dropoff_datetime, raw_trips.tpep_pickup_datetime, MINUTE) AS trip_duration_minutes,
+        raw_trips.fare_amount,
+        raw_trips.trip_distance,
+        raw_trips.passenger_count,
+        raw_trips.PULocationID,
+        dim_zones.Borough
+      FROM tlc_borough_analytics.raw_trips
+      INNER JOIN tlc_borough_analytics.dim_zones
+        ON raw_trips.PULocationID = dim_zones.LocationID
+      )
+
+  - id: analyze_fare_duration_by_borough
+    type: io.kestra.plugin.gcp.bigquery.Query
+    sql: |
+      SELECT
+        clean_trips.Borough,
+        AVG(clean_trips.fare_amount) AS avg_fare,
+        AVG(clean_trips.trip_duration_minutes) AS avg_trip_duration,
+        COUNT(*) AS trip_count
+      FROM tlc_borough_analytics.clean_trips
+      GROUP BY clean_trips.Borough
+      ORDER BY trip_count DESC
+
+triggers:
+  - id: weekly_schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "@weekly"
+    allowConcurrent: false
